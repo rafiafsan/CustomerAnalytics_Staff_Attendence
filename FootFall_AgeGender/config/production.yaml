@@ -17,10 +17,12 @@ inference:
   target_fps: 15
   width: 640
   height: 360
-  model: "models/yolov8n_480.onnx"  # produce with: python export_and_quantize.py --imgsz 480
-  fallback_model: "models/yolov8n.pt"
+  model: "models/yolov8m.onnx"
+  fallback_model: "models/yolov8m_int8.onnx"
   high_accuracy_model: "models/yolov8m.pt"
   backend: "onnx"  # "onnx" or "torch"
+  prefer_openvino: true
+  device: "GPU"  # "GPU" (Intel Iris Xe iGPU) or "CPU"
   cpu_threads: 2
   confidence: 0.40
 

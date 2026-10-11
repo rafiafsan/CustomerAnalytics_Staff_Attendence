@@ -3,6 +3,7 @@ import re
 import io
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional, Callable
 import numpy as np
@@ -239,14 +240,22 @@ class AttendancePipeline:
 
             # Record verified attendance event if confirmed
             if is_confirmed and matched_id:
+                # Date
+                cdate = datetime.now().strftime("%Y%m%d")  # "20261011"
+
+                # Time
+                ctime = datetime.now().strftime("%H%M%S")  # "172943"
+
                 print(f"\n=======================================================", flush=True)
                 print(f" [✓] VERIFIED ATTENDANCE CONFIRMED!", flush=True)
                 print(f"     Staff ID   : {matched_id}", flush=True)
                 print(f"     Staff Name : {matched_name}", flush=True)
+                print(f"     Date       : {cdate}", flush=True)
+                print(f"     Time       : {ctime}", flush=True)
                 print(f"     Confidence : {match_score * 100:.1f}%", flush=True)
                 print(f"     Camera     : {self.camera_id}", flush=True)
                 print(f"=======================================================\n", flush=True)
-                logger.info(f"Verified Attendance: {matched_name} (ID: {matched_id}, Sim: {match_score:.2f})")
+                logger.info(f"Verified Attendance: {matched_name} (ID: {matched_id}, Date: {cdate}, Time: {ctime}, Sim: {match_score:.2f})")
                 self.db.log_attendance(
                     emp_id=matched_id,
                     name=matched_name,

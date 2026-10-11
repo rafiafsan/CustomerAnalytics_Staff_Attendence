@@ -79,12 +79,17 @@ class GuiLogHandler(logging.Handler):
 class AttendanceApp:
     """Main Standalone Native GUI Application for VisionGuard AI."""
 
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, parent_frame: Optional[tk.Frame] = None):
         self.root = root
-        self.root.title("VisionGuard AI — Real-Time Face Attendance & Verification")
-        self.root.geometry("1480 Central" if False else "1460x900")
-        self.root.minsize(1200, 760)
-        self.root.configure(bg=BG_MAIN)
+        self.is_embedded = parent_frame is not None
+        if not self.is_embedded:
+            self.root.title("VisionGuard AI — Real-Time Face Attendance & Verification")
+            self.root.geometry("1480 Central" if False else "1460x900")
+            self.root.minsize(1200, 760)
+            self.root.configure(bg=BG_MAIN)
+            self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self.container = parent_frame if parent_frame is not None else self.root
 
         # Threading queues & state
         self.log_queue = queue.Queue()
@@ -120,9 +125,6 @@ class AttendanceApp:
         # Start background threads & scheduled timers
         self._start_processing_thread()
         self._schedule_periodic_tasks()
-
-        # Window closing handler
-        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         logger.info("VisionGuard Native GUI initialized successfully.")
 
     # --------------------------------------------------------------------------
@@ -186,7 +188,7 @@ class AttendanceApp:
     # Header Section
     # --------------------------------------------------------------------------
     def _build_header(self):
-        header_frame = tk.Frame(self.root, bg=BG_CARD, height=64, padx=16, pady=10)
+        header_frame = tk.Frame(self.container, bg=BG_CARD, height=64, padx=16, pady=10)
         header_frame.pack(fill=tk.X, side=tk.TOP)
 
         # Left Brand
@@ -236,7 +238,7 @@ class AttendanceApp:
     # KPI Metric Cards
     # --------------------------------------------------------------------------
     def _build_kpi_row(self):
-        kpi_frame = tk.Frame(self.root, bg=BG_MAIN, padx=16, pady=10)
+        kpi_frame = tk.Frame(self.container, bg=BG_MAIN, padx=16, pady=10)
         kpi_frame.pack(fill=tk.X, side=tk.TOP)
 
         self.kpi_cards = {}
@@ -273,7 +275,7 @@ class AttendanceApp:
     # Main Workspace (Split: Left Video Canvas, Right Roster & Verifier)
     # --------------------------------------------------------------------------
     def _build_main_workspace(self):
-        workspace = tk.Frame(self.root, bg=BG_MAIN, padx=16, pady=4)
+        workspace = tk.Frame(self.container, bg=BG_MAIN, padx=16, pady=4)
         workspace.pack(fill=tk.BOTH, expand=True, side=tk.TOP)
 
         # 1. Left Video Panel (62% width)
@@ -668,7 +670,7 @@ class AttendanceApp:
     # Lower Section: Multi-Tab Data Explorer
     # --------------------------------------------------------------------------
     def _build_lower_data_tabs(self):
-        bottom_frame = tk.Frame(self.root, bg=BG_MAIN, padx=16, pady=6)
+        bottom_frame = tk.Frame(self.container, bg=BG_MAIN, padx=16, pady=6)
         bottom_frame.pack(fill=tk.BOTH, expand=True, side=tk.BOTTOM)
 
         notebook = ttk.Notebook(bottom_frame)
@@ -1445,7 +1447,8 @@ class AttendanceApp:
         self.is_running = False
         if self.pipeline and self.pipeline.stream:
             self.pipeline.stream.stop()
-        self.root.destroy()
+        if not getattr(self, "is_embedded", False):
+            self.root.destroy()
 
 
 def launch_gui():

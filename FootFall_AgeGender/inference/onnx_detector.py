@@ -65,6 +65,14 @@ class ONNXDetector:
         if prefer_openvino and OPENVINO_AVAILABLE:
             try:
                 core = ov.Core()
+                # Enable model caching to load compiled GPU/CPU model in ~1s on subsequent startups
+                cache_dir = os.path.join(os.path.dirname(model_path) or ".", ".openvino_cache")
+                try:
+                    os.makedirs(cache_dir, exist_ok=True)
+                    core.set_property({"CACHE_DIR": cache_dir})
+                except Exception:
+                    pass
+
                 available = core.available_devices
                 chosen_device = self.device.upper() if self.device else ("GPU" if "GPU" in available else "CPU")
                 if chosen_device == "CPU":

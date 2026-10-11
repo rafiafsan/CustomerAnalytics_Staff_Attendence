@@ -149,18 +149,22 @@ class UnifiedRetailPipeline:
         demo_cfg = self.config.get("demographics", {})
         self.min_demo_person_height = int(demo_cfg.get("min_person_height", 120))
         if self.enable_demographics and demo_cfg.get("enabled", True):
-            from mivolo_system.async_worker import AsyncDemographicWorker  # lazy: imports torch
+            try:
+                from mivolo_system.async_worker import AsyncDemographicWorker  # lazy: imports torch
 
-            self.demographic_worker: Optional["AsyncDemographicWorker"] = AsyncDemographicWorker(
-                checkpoint_path=demo_cfg.get("checkpoint"),
-                device=demo_cfg.get("mode", "cpu"),
-                max_queue_size=int(demo_cfg.get("queue_size", 4)),
-                max_samples_per_person=int(demo_cfg.get("max_samples", 4)),
-                cpu_threads=int(demo_cfg.get("cpu_threads", 1)),
-                female_threshold=float(demo_cfg.get("female_threshold", 0.50)),
-                lazy=True,
-                on_result=self._on_demographic_result,
-            )
+                self.demographic_worker: Optional["AsyncDemographicWorker"] = AsyncDemographicWorker(
+                    checkpoint_path=demo_cfg.get("checkpoint"),
+                    device=demo_cfg.get("mode", "cpu"),
+                    max_queue_size=int(demo_cfg.get("queue_size", 4)),
+                    max_samples_per_person=int(demo_cfg.get("max_samples", 4)),
+                    cpu_threads=int(demo_cfg.get("cpu_threads", 1)),
+                    female_threshold=float(demo_cfg.get("female_threshold", 0.50)),
+                    lazy=True,
+                    on_result=self._on_demographic_result,
+                )
+            except Exception as e:
+                print(f"[UnifiedPipeline] Demographic profiling disabled ({e}). Running high-speed footfall & gate tracking.")
+                self.demographic_worker = None
         else:
             self.demographic_worker = None
 
@@ -685,3 +689,87 @@ class UnifiedRetailPipeline:
         if self.display:
             cv2.destroyAllWindows()
         print("[UnifiedPipeline] Pipeline closed cleanly.")
+
+    def get_latest_gui_frame(self, annotate: bool = True) -> Tuple[bool, Optional[np.ndarray]]:
+        """Retrieve newest frame from reader, optionally annotated with gates and tracks.
+        Thread-safe, strictly single-slot (zero queue accumulation, zero memory leak).
+        """
+        if not hasattr(self, "reader") or self.reader is None or not self.reader.is_connected:
+            return False, None
+
+        ret, frame, _, _ = self.reader.get_latest_frame(fresh=False)
+        if not ret or frame is None or frame.size == 0:
+            return False, None
+
+        if not annotate:
+            return True, frame
+
+        # Make copy for drawing
+        display_frame = frame.copy()
+
+        # 1. Draw virtual gate lines
+        self._draw_gates(display_frame)
+
+        # 2. Retrieve cached AI state safely
+        with self._state_lock:
+            persons = list(self.cached_persons)
+            bags = list(self.cached_bags)
+            total_bag_exits = self.cached_total_bag_exits
+            demo_labels = dict(self.cached_demo_labels)
+
+        # 3. Draw motion trails
+        draw_tracks(display_frame, persons, self.track_manager)
+
+        # 4. Draw confirmed person-bag association lines
+        display_frame = self.associator.draw_confirmed_associations_bag_exit(display_frame, persons, bags)
+
+        # 5. Draw person bounding boxes & demographic labels
+        for det in persons:
+            px1, py1, px2, py2 = det["bbox"]
+            t_id = det["track_id"]
+            label = f"ID: {t_id}"
+            if t_id in demo_labels:
+                label += f" | {demo_labels[t_id]}"
+            cv2.rectangle(display_frame, (px1, py1), (px2, py2), (0, 255, 0), 2)
+            cv2.putText(
+                display_frame,
+                label,
+                (px1, max(20, py1 - 8)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.52,
+                (0, 255, 0),
+                2,
+                cv2.LINE_AA,
+            )
+
+        # 6. Draw bag bounding boxes
+        for bag in bags:
+            bx1, by1, bx2, by2 = bag["bbox"]
+            b_id = bag["track_id"]
+            cv2.rectangle(display_frame, (bx1, by1), (bx2, by2), (0, 0, 255), 2)
+            cv2.putText(
+                display_frame,
+                f"BAG: {b_id}",
+                (bx1, max(15, by1 - 5)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.48,
+                (0, 0, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+        # 7. Draw HUD summary overlay
+        profiling_count = len([t for t in self.monitored_for_demographics if not (self.demographic_worker and self.demographic_worker.is_finalized(t))])
+        pending_dwell = len(self.event_manager.pending_entries) + len(self.event_manager.pending_exits)
+        self.perf_monitor.draw_hud(
+            frame=display_frame,
+            entry_count=self.event_manager.validated_entry_count,
+            exit_count=self.event_manager.validated_exit_count,
+            bag_exit_count=total_bag_exits,
+            active_profiling_count=profiling_count,
+            valid_entry_count=self.event_manager.validated_entry_count,
+            valid_exit_count=self.event_manager.validated_exit_count,
+            pending_count=pending_dwell,
+        )
+
+        return True, display_frame

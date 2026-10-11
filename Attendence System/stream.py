@@ -168,3 +168,10 @@ class RTSPStreamReader:
                 self._cap = None
             self._is_connected = False
         logger.info("RTSP Stream stopped.")
+
+    def reconnect(self, new_url: Optional[str] = None):
+        """Safely reconnect RTSP stream, optionally with a new RTSP URL."""
+        self.stop()
+        if new_url:
+            self.rtsp_url = new_url
+        return self.start()

@@ -17,6 +17,10 @@ import threading
 from pathlib import Path
 from typing import Optional, Tuple
 
+import cv2
+import numpy as np
+from PIL import Image, ImageTk
+
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkinter.scrolledtext import ScrolledText
@@ -84,7 +88,13 @@ class GuiLogHandler:
 class RetailAnalyticsApp:
     """Main Standalone GUI Application."""
 
-    def __init__(self, config_path: str = "config/production.yaml"):
+    def __init__(
+        self,
+        config_path: str = "config/production.yaml",
+        root: Optional[tk.Tk] = None,
+        parent_frame: Optional[tk.Frame] = None,
+        auto_countdown: bool = True,
+    ):
         self.config_path = str(PROJECT_ROOT / config_path)
         self.cfg = self._load_config()
 
@@ -107,31 +117,39 @@ class RetailAnalyticsApp:
         self.pipeline_thread = None
         self.is_monitoring = False
         self.countdown_seconds = 15
-        self.countdown_active = True
+        self.countdown_active = auto_countdown
         self.log_queue = queue.Queue(maxsize=5000)
+        self.live_display_enabled = True
+        self.current_photo = None
+        self.canvas_stream = None
 
         # Initialize logging
         self._init_logging()
 
         # Tkinter Root Setup
-        self.root = tk.Tk()
-        self.root.title("Retail Analytics v2 — Standalone Edge AI Gateway")
-        self.root.geometry("860x680")
-        self.root.minsize(780, 580)
-        self.root.configure(bg=BG_MAIN)
+        self.is_embedded = parent_frame is not None
+        if root is not None:
+            self.root = root
+        else:
+            self.root = tk.Tk()
+            self.root.title("Retail Analytics v2 — Standalone Edge AI Gateway")
+            self.root.geometry("860x680")
+            self.root.minsize(780, 580)
+            self.root.configure(bg=BG_MAIN)
+            self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # Style Configuration
         self._setup_styles()
 
         # Main Container Frame
-        self.main_container = tk.Frame(self.root, bg=BG_MAIN)
-        self.main_container.pack(fill=tk.BOTH, expand=True)
+        if parent_frame is not None:
+            self.main_container = parent_frame
+        else:
+            self.main_container = tk.Frame(self.root, bg=BG_MAIN)
+            self.main_container.pack(fill=tk.BOTH, expand=True)
 
         # Render Initial Setup View
         self.render_setup_view()
-
-        # Window Close Hook
-        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def _load_config(self) -> dict:
         import yaml
@@ -367,6 +385,20 @@ class RetailAnalyticsApp:
         else:
             self._start_monitoring()
 
+    def _get_current_rtsp_source(self) -> str:
+        """Safely fetch current RTSP source from widget, runtime state, or config."""
+        if hasattr(self, "rtsp_entry") and self.rtsp_entry is not None:
+            try:
+                if self.rtsp_entry.winfo_exists():
+                    val = self.rtsp_entry.get().strip()
+                    if val:
+                        return val
+            except Exception:
+                pass
+        if hasattr(self, "current_source") and self.current_source:
+            return self.current_source
+        return getattr(self, "saved_rtsp", "")
+
     def _on_browse_file(self):
         self._pause_countdown()
         path = filedialog.askopenfilename(
@@ -374,16 +406,24 @@ class RetailAnalyticsApp:
             filetypes=[("Video Files", "*.avi *.mp4 *.mkv *.mov"), ("All Files", "*.*")],
         )
         if path:
-            self.rtsp_entry.delete(0, tk.END)
-            self.rtsp_entry.insert(0, path)
+            if hasattr(self, "rtsp_entry") and self.rtsp_entry is not None:
+                try:
+                    if self.rtsp_entry.winfo_exists():
+                        self.rtsp_entry.delete(0, tk.END)
+                        self.rtsp_entry.insert(0, path)
+                except Exception:
+                    pass
+            self.saved_rtsp = path
+            self.current_source = path
 
     def _launch_calibration(self):
         self._pause_countdown()
-        source = self.rtsp_entry.get().strip() or self.saved_rtsp
+        source = self._get_current_rtsp_source() or self.saved_rtsp
         self._persist_rtsp_url(source)
 
-        # Hide Tkinter setup window during calibration
-        self.root.withdraw()
+        is_standalone = not getattr(self, "is_embedded", False)
+        if is_standalone:
+            self.root.withdraw()
         try:
             from calibrate_gates import GateCalibrator
             calibrator = GateCalibrator(source)
@@ -391,7 +431,8 @@ class RetailAnalyticsApp:
         except Exception as e:
             messagebox.showerror("Calibration Error", f"Could not connect to camera stream:\n{e}\n\nPlease check network or RTSP URL.")
         finally:
-            self.root.deiconify()
+            if is_standalone:
+                self.root.deiconify()
 
     # -------------------------------------------------------------------------
     # VIEW 2: Live Monitoring Dashboard (Zero Terminal Overhead)
@@ -399,11 +440,12 @@ class RetailAnalyticsApp:
 
     def _start_monitoring(self):
         self.countdown_active = False
-        source = self.rtsp_entry.get().strip() if hasattr(self, "rtsp_entry") else self.saved_rtsp
+        source = self._get_current_rtsp_source() or self.saved_rtsp
         if not source:
             source = self.saved_rtsp
 
         self._persist_rtsp_url(source)
+        self.current_source = source
         self.is_monitoring = True
         self.render_monitoring_view(source)
 
@@ -436,6 +478,22 @@ class RetailAnalyticsApp:
         indicators = tk.Frame(top_bar, bg=BG_CARD)
         indicators.pack(side=tk.RIGHT, padx=16, pady=12)
 
+        self.btn_toggle_display = tk.Button(
+            indicators,
+            text="👁️ Live Video: ON",
+            font=("Segoe UI", 8, "bold"),
+            bg=ACCENT_GREEN,
+            fg=TEXT_WHITE,
+            activebackground="#059669",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=10,
+            pady=3,
+            cursor="hand2",
+            command=self.toggle_live_display,
+        )
+        self.btn_toggle_display.pack(side=tk.LEFT, padx=4)
+
         self.lbl_stream_status = tk.Label(indicators, text="🟢 Stream: Connected", font=("Segoe UI", 9, "bold"), fg=ACCENT_GREEN, bg=BG_CARD_LIGHT, padx=10, pady=4)
         self.lbl_stream_status.pack(side=tk.LEFT, padx=4)
 
@@ -452,15 +510,31 @@ class RetailAnalyticsApp:
         self.lbl_kpi_inside = self._create_kpi_card(kpi_frame, 2, "Current Inside", "0", ACCENT_PURPLE)
         self.lbl_kpi_bags = self._create_kpi_card(kpi_frame, 3, "Bag Exits", "0", ACCENT_AMBER)
 
-        # Log & Event Stream Card
-        log_card = tk.Frame(self.main_container, bg=BG_CARD, highlightthickness=1, highlightbackground=BORDER_COLOR)
-        log_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=12)
+        # Split Workspace: Left Live Video Stream Canvas, Right Real-Time Event Logs
+        split_card = tk.Frame(self.main_container, bg=BG_MAIN)
+        split_card.pack(fill=tk.BOTH, expand=True, padx=20, pady=8)
 
-        log_head = tk.Frame(log_card, bg=BG_CARD)
-        log_head.pack(fill=tk.X, padx=14, pady=(10, 6))
+        # 1. Left Video Canvas Card (58% width)
+        stream_card = tk.Frame(split_card, bg=BG_CARD, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        stream_card.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
 
-        tk.Label(log_head, text="Real-Time Event Stream (Headless Mode)", font=("Segoe UI", 10, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(side=tk.LEFT)
-        tk.Label(log_head, text="All events stream to API with 0% dropped FPS", font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD).pack(side=tk.RIGHT)
+        s_head = tk.Frame(stream_card, bg=BG_CARD, padx=12, pady=6)
+        s_head.pack(fill=tk.X)
+        tk.Label(s_head, text="📹 Customer Footfall Live Camera Feed & Gates", font=("Segoe UI", 10, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(side=tk.LEFT)
+        self.lbl_stream_mode = tk.Label(s_head, text="● Live Preview: ON", font=("Segoe UI", 8, "bold"), fg=ACCENT_GREEN, bg=BG_CARD)
+        self.lbl_stream_mode.pack(side=tk.RIGHT)
+
+        self.canvas_stream = tk.Canvas(stream_card, bg="#020617", highlightthickness=0)
+        self.canvas_stream.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+
+        # 2. Right Real-Time Event Logs Card (42% width)
+        log_card = tk.Frame(split_card, bg=BG_CARD, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        log_card.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(6, 0))
+
+        log_head = tk.Frame(log_card, bg=BG_CARD, padx=12, pady=6)
+        log_head.pack(fill=tk.X)
+        tk.Label(log_head, text="Real-Time Event Stream", font=("Segoe UI", 10, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(side=tk.LEFT)
+        tk.Label(log_head, text="Cloud API Synced", font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD).pack(side=tk.RIGHT)
 
         # Scrolled Text for Event Logs
         self.txt_logs = ScrolledText(
@@ -471,10 +545,10 @@ class RetailAnalyticsApp:
             font=("Consolas", 9),
             relief=tk.FLAT,
             highlightthickness=0,
-            padx=10,
+            padx=8,
             pady=8,
         )
-        self.txt_logs.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 12))
+        self.txt_logs.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
 
         # Bottom Action Bar
         bottom_bar = tk.Frame(self.main_container, bg=BG_MAIN)
@@ -535,6 +609,66 @@ class RetailAnalyticsApp:
         # Start periodic GUI refresh tasks
         self.root.after(200, self._poll_log_queue)
         self.root.after(500, self._poll_pipeline_metrics)
+        self.root.after(100, self._poll_live_stream)
+
+    def toggle_live_display(self):
+        """Toggle live stream rendering on/off to conserve system RAM and CPU."""
+        self.live_display_enabled = not self.live_display_enabled
+        if self.live_display_enabled:
+            if hasattr(self, "btn_toggle_display"):
+                self.btn_toggle_display.config(text="👁️ Live Video: ON", bg=ACCENT_GREEN)
+            if hasattr(self, "lbl_stream_mode"):
+                self.lbl_stream_mode.config(text="● Live Preview: ON", fg=ACCENT_GREEN)
+        else:
+            if hasattr(self, "btn_toggle_display"):
+                self.btn_toggle_display.config(text="💤 Live Video: OFF (RAM Saver)", bg="#475569")
+            if hasattr(self, "lbl_stream_mode"):
+                self.lbl_stream_mode.config(text="💤 RAM Saver: Paused", fg=ACCENT_AMBER)
+            if getattr(self, "canvas_stream", None) is not None and self.canvas_stream.winfo_exists():
+                self.current_photo = None
+                self.canvas_stream.delete("all")
+                cw = max(200, self.canvas_stream.winfo_width())
+                ch = max(150, self.canvas_stream.winfo_height())
+                self.canvas_stream.create_text(
+                    cw // 2,
+                    ch // 2,
+                    text="⚡ Live Video Display Paused (RAM Saver Active)\n\n"
+                         "Background AI person detection, tracking, virtual gate crossing counts,\n"
+                         "and cloud sync are actively running with 0 display RAM overhead.\n\n"
+                         "Click 'Live Video: OFF' above to resume live camera preview.",
+                    fill=TEXT_MUTED,
+                    font=("Segoe UI", 10),
+                    justify="center",
+                )
+
+    def _poll_live_stream(self):
+        """Pulls annotated frames from the pipeline for live GUI display with bounded RAM usage."""
+        if not self.is_monitoring:
+            return
+
+        if self.live_display_enabled and self.pipeline is not None and getattr(self, "canvas_stream", None) is not None and self.canvas_stream.winfo_exists():
+            try:
+                ret, frame = self.pipeline.get_latest_gui_frame(annotate=True)
+                if ret and frame is not None and frame.size > 0:
+                    cw = self.canvas_stream.winfo_width()
+                    ch = self.canvas_stream.winfo_height()
+                    if cw > 50 and ch > 50:
+                        fh, fw = frame.shape[:2]
+                        scale = min(cw / fw, ch / fh)
+                        nw = max(1, int(fw * scale))
+                        nh = max(1, int(fh * scale))
+                        resized = cv2.resize(frame, (nw, nh), interpolation=cv2.INTER_LINEAR)
+                        rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
+                        img = Image.fromarray(rgb)
+                        self.current_photo = ImageTk.PhotoImage(image=img)
+                        self.canvas_stream.delete("all")
+                        self.canvas_stream.create_image(cw // 2, ch // 2, image=self.current_photo, anchor="center")
+            except Exception:
+                pass
+
+        if self.is_monitoring:
+            interval = 50 if self.live_display_enabled else 350
+            self.root.after(interval, self._poll_live_stream)
 
     def _create_kpi_card(self, parent, col, title, initial_val, color) -> tk.Label:
         card = tk.Frame(parent, bg=BG_CARD, highlightthickness=1, highlightbackground=BORDER_COLOR)
@@ -626,12 +760,13 @@ class RetailAnalyticsApp:
 
     def on_close(self):
         """Clean shutdown handler."""
-        if self.is_monitoring and self.pipeline is not None:
-            ans = messagebox.askyesno("Confirm Exit", "Stop analytics monitoring and close Retail Analytics?")
-            if not ans:
-                return
+        if not getattr(self, "is_embedded", False):
+            if self.is_monitoring and self.pipeline is not None:
+                ans = messagebox.askyesno("Confirm Exit", "Stop analytics monitoring and close Retail Analytics?")
+                if not ans:
+                    return
 
-        print("[GUI] Shutting down application cleanly...")
+        print("[GUI] Shutting down Retail Analytics cleanly...")
         self.is_monitoring = False
         if self.pipeline is not None:
             try:
@@ -639,8 +774,9 @@ class RetailAnalyticsApp:
             except Exception:
                 pass
 
-        self.root.destroy()
-        sys.exit(0)
+        if not getattr(self, "is_embedded", False):
+            self.root.destroy()
+            sys.exit(0)
 
     def run(self):
         """Start the Tkinter mainloop."""
