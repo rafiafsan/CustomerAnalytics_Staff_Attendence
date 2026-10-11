@@ -1,0 +1,9 @@
+# Edge PC Runtime Dependencies (Pure ONNX / OpenVINO, ~2GB RAM Budget)
+numpy
+opencv-python-headless
+onnxruntime
+openvino
+pyyaml
+requests
+psutil
+supervision

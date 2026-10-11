@@ -1,0 +1,19 @@
+[Unit]
+Description=Retail AI Edge Analytics Engine
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=edgeuser
+WorkingDirectory=/home/edgeuser/Low_Resource_ai_system
+EnvironmentFile=-/home/edgeuser/Low_Resource_ai_system/edge.env
+ExecStart=/home/edgeuser/Low_Resource_ai_system/venv/bin/python app.py --no-display --no-demographics --config config/production.yaml
+Restart=always
+RestartSec=5
+# Hard memory ceiling: the kernel kills + systemd restarts if exceeded
+MemoryMax=1500M
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

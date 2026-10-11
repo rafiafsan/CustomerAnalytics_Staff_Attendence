@@ -1,0 +1,8 @@
+numpy
+opencv-python-headless
+onnxruntime
+openvino
+pyyaml
+requests
+psutil
+supervision

@@ -1,0 +1,66 @@
+{
+    "master": {
+        "gate_points": [
+            [
+                679,
+                474
+            ],
+            [
+                1240,
+                386
+            ]
+        ],
+        "inside_reference": [
+            980,
+            445
+        ]
+    },
+    "footfall": {
+        "gate_points": [
+            [
+                1032,
+                472
+            ],
+            [
+                1473,
+                706
+            ]
+        ],
+        "inside_reference": [
+            1234,
+            604
+        ]
+    },
+    "bag_exit": {
+        "gate_points": [
+            [
+                994,
+                448
+            ],
+            [
+                1474,
+                682
+            ]
+        ],
+        "inside_reference": [
+            1208,
+            592
+        ]
+    },
+    "demographics": {
+        "gate_points": [
+            [
+                1053,
+                424
+            ],
+            [
+                1533,
+                746
+            ]
+        ],
+        "inside_reference": [
+            1125,
+            586
+        ]
+    }
+}

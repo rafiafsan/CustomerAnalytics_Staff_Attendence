@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisionGuard - AI Face Attendance & Verification System</title>
+  <meta name="description" content="Real-time RTSP Face Recognition, Quality Assessment, SFace Embeddings and Attendance System">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar / Brand -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+            <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+            <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+            <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+            <circle cx="12" cy="12" r="3"/>
+            <path d="m16 16-.5-.5"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>VisionGuard AI</h1>
+          <span class="brand-tag">RTSP Face Attendance & SFace Verification</span>
+        </div>
+      </div>
+
+      <div class="header-badges">
+        <div class="status-pill" id="camera-status-pill">
+          <span class="status-dot live"></span>
+          <span id="camera-status-text">Connecting...</span>
+        </div>
+        <button id="enroll-modal-btn" class="btn btn-primary" onclick="openEnrollModal()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <line x1="19" y1="8" x2="19" y2="14"/>
+            <line x1="22" y1="11" x2="16" y2="11"/>
+          </svg>
+          + Register Staff (3 Photos)
+        </button>
+      </div>
+    </header>
+
+    <!-- Metrics Row -->
+    <section class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-meta">
+          <span class="stat-label">Frame Sampling</span>
+          <span class="stat-value" id="stat-fps">3.0 FPS</span>
+        </div>
+        <div class="stat-badge">YuNet + SFace</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-meta">
+          <span class="stat-label">Total Captures</span>
+          <span class="stat-value" id="stat-total-captures">0</span>
+        </div>
+        <div class="stat-badge accent">RTSP Stream</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-meta">
+          <span class="stat-label">Quality Pass Rate</span>
+          <span class="stat-value" id="stat-quality-rate">0%</span>
+        </div>
+        <div class="stat-badge success">Blur & Pose Filter</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-meta">
+          <span class="stat-label">Enrolled Employees</span>
+          <span class="stat-value" id="stat-enrolled-count">0</span>
+        </div>
+        <div class="stat-badge info">Gallery DB</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-meta">
+          <span class="stat-label">Verified Attendance</span>
+          <span class="stat-value" id="stat-attendance-count">0</span>
+        </div>
+        <div class="stat-badge warning">Temporal Confirmed</div>
+      </div>
+    </section>
+
+    <!-- Main Workspace Grid -->
+    <main class="main-grid">
+      <!-- Left Column: Live RTSP Camera Feed -->
+      <section class="stream-panel card">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span class="live-indicator">LIVE</span>
+            <h2>Entrance Camera Stream (1080p HEVC)</h2>
+          </div>
+          <span class="cam-id-pill" id="cam-id-pill">CAM_01_MAIN</span>
+        </div>
+
+        <div class="stream-viewport">
+          <img id="live-stream-img" src="/video_feed" alt="Live RTSP Detection Feed">
+          <div class="stream-overlay-tags">
+            <span class="tag">YuNet: 5 Landmarks</span>
+            <span class="tag">SFace: 128-d Vector</span>
+            <span class="tag">SQLite Logged</span>
+          </div>
+        </div>
+
+        <div class="stream-footer">
+          <div class="pipeline-stages-bar">
+            <span class="stage-chip active">1. RTSP Input</span>
+            <span class="stage-chip active">2. 2-5 FPS Sampling</span>
+            <span class="stage-chip active">3. YuNet Detect</span>
+            <span class="stage-chip active">4. Quality Filter</span>
+            <span class="stage-chip active">5. SFace Embed</span>
+            <span class="stage-chip active">6. Match</span>
+            <span class="stage-chip active">7. Temporal Conf.</span>
+            <span class="stage-chip active">8. SQLite</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Quick Verification Tester & Enrolled List -->
+      <section class="tools-panel">
+        <!-- Embedding Verification Card -->
+        <div class="card verification-card">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Embedding Verification Tester</h2>
+            </div>
+            <span class="subtext">SFace Cosine Distance</span>
+          </div>
+
+          <p class="tool-desc">
+            Compare two stored 128-d face embeddings from local storage to verify identity match score.
+          </p>
+
+          <div class="verify-inputs">
+            <div class="input-group">
+              <label for="verify-select-1">Embedding A (Reference):</label>
+              <select id="verify-select-1" class="form-select">
+                <option value="">Select saved embedding...</option>
+              </select>
+            </div>
+
+            <div class="input-group">
+              <label for="verify-select-2">Embedding B (Probe):</label>
+              <select id="verify-select-2" class="form-select">
+                <option value="">Select saved embedding...</option>
+              </select>
+            </div>
+
+            <button id="run-verify-btn" class="btn btn-primary btn-block" onclick="runEmbeddingVerification()">
+              Run Cosine Verification
+            </button>
+          </div>
+
+          <div id="verify-result-box" class="verify-result-box hidden">
+            <div class="result-header">
+              <span class="verdict-label" id="verdict-title">MATCH</span>
+              <span class="sim-badge" id="verdict-sim">0.0000</span>
+            </div>
+            <div class="result-details">
+              <div class="detail-row">
+                <span>Cosine Similarity:</span>
+                <strong id="verdict-cosine">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Euclidean (L2) Dist:</span>
+                <strong id="verdict-l2">-</strong>
+              </div>
+              <div class="detail-row">
+                <span>Threshold:</span>
+                <strong>>= 0.380 (SFace Std)</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Enrolled Employees Card -->
+        <div class="card enrolled-card">
+          <div class="panel-header">
+            <div class="panel-title">
+              <h2>Staff Roster & Attendance</h2>
+            </div>
+            <div class="header-roster-meta">
+              <span class="badge" id="enrolled-badge">0 Staff</span>
+              <span class="badge badge-success" id="today-present-badge">0 Present Today</span>
+            </div>
+          </div>
+
+          <div class="roster-toolbar">
+            <div class="roster-search-wrapper">
+              <input type="text" id="roster-search-input" placeholder="Search staff by name or ID..." oninput="handleRosterFilter()">
+            </div>
+            <div class="roster-filter-pills">
+              <button class="filter-pill active" id="filter-pill-all" onclick="setRosterFilter('all')">All</button>
+              <button class="filter-pill" id="filter-pill-confirmed" onclick="setRosterFilter('confirmed')">Confirmed Today (✓)</button>
+              <button class="filter-pill" id="filter-pill-pending" onclick="setRosterFilter('pending')">Pending (⏳)</button>
+            </div>
+          </div>
+
+          <div class="employee-list" id="employee-list">
+            <div class="empty-state">Loading registered staff...</div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Lower Section: Face Embeddings Gallery & Attendance Logs -->
+    <section class="data-tabs-section card">
+      <div class="tabs-header">
+        <button class="tab-btn active" id="tab-btn-embeddings" onclick="switchTab('embeddings')">
+          Stored Face Embeddings & Crops
+        </button>
+        <button class="tab-btn" id="tab-btn-attendance" onclick="switchTab('attendance')">
+          Verified Attendance Events
+        </button>
+        <button class="tab-btn" id="tab-btn-captures" onclick="switchTab('captures')">
+          Quality Audit Logs
+        </button>
+      </div>
+
+      <!-- Tab Content 1: Embeddings Gallery -->
+      <div class="tab-content" id="tab-content-embeddings">
+        <div class="gallery-toolbar">
+          <p class="subtext">Aligned 112x112 face chips and 128-d vectors stored in <code>data/embeddings/</code> & <code>data/faces/</code>.</p>
+          <button class="btn btn-sm btn-outline" onclick="loadSavedEmbeddings()">Refresh Embeddings</button>
+        </div>
+        <div class="embeddings-gallery" id="embeddings-gallery">
+          <div class="empty-state">No embeddings stored yet. Live faces passing quality will appear here automatically.</div>
+        </div>
+      </div>
+
+      <!-- Tab Content 2: Attendance Records -->
+      <div class="tab-content hidden" id="tab-content-attendance">
+        <div class="table-container">
+          <table class="data-table" id="attendance-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Employee</th>
+                <th>Timestamp</th>
+                <th>Camera</th>
+                <th>Confidence</th>
+                <th>Status</th>
+                <th>Face Image</th>
+                <th>Embedding</th>
+              </tr>
+            </thead>
+            <tbody id="attendance-tbody">
+              <tr><td colspan="8" class="text-center">No attendance events recorded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab Content 3: Quality Audit Logs -->
+      <div class="tab-content hidden" id="tab-content-captures">
+        <div class="table-container">
+          <table class="data-table" id="captures-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Dimensions</th>
+                <th>Blur Score</th>
+                <th>Roll Angle</th>
+                <th>Yaw Ratio</th>
+                <th>Quality Filter</th>
+                <th>Rejection Reason / Match</th>
+              </tr>
+            </thead>
+            <tbody id="captures-tbody">
+              <tr><td colspan="7" class="text-center">No capture audits recorded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Enrollment Modal -->
+  <div id="enroll-modal" class="modal-backdrop hidden">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <div>
+          <h3>Register New Staff Member</h3>
+          <p class="modal-subtitle">Upload 3 portrait photos to extract multi-angle SFace embeddings into Staffs folder</p>
+        </div>
+        <button class="close-btn" onclick="closeEnrollModal()">&times;</button>
+      </div>
+      <form id="enroll-form" onsubmit="handleEnrollSubmit(event)">
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="emp-id-input">Staff ID / Code <span class="req">*</span>:</label>
+            <input type="text" id="emp-id-input" name="emp_id" class="form-control" placeholder="e.g. 564310" required oninput="updateFolderPreview()">
+          </div>
+          <div class="form-group flex-1">
+            <label for="emp-name-input">Staff Full Name <span class="req">*</span>:</label>
+            <input type="text" id="emp-name-input" name="name" class="form-control" placeholder="e.g. Afsan" required oninput="updateFolderPreview()">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="emp-dept-input">Department / Role:</label>
+          <input type="text" id="emp-dept-input" name="department" class="form-control" placeholder="e.g. Operations, Staff" value="Staff">
+        </div>
+
+        <!-- Target Destination Folder Indicator -->
+        <div class="target-folder-box">
+          <div class="folder-icon">📂</div>
+          <div class="folder-details">
+            <span class="folder-title">Destination Archive Folder:</span>
+            <code class="folder-path" id="folder-preview-path">Attendence System\Staffs\staffid_name</code>
+          </div>
+        </div>
+
+        <!-- 3 Photos Upload Slots -->
+        <div class="form-group photos-section">
+          <div class="photos-section-header">
+            <label class="photos-section-label">Upload 3 Portrait Photos <span class="req">*</span></label>
+            <span class="label-hint">Frontal + Left Angle + Right Angle for optimal recognition accuracy</span>
+          </div>
+
+          <div class="photo-upload-grid">
+            <!-- Photo Slot 1 -->
+            <div class="photo-slot" id="slot-1">
+              <input type="file" id="photo1-input" name="photo1" accept="image/*" class="photo-file-hidden" required onchange="handlePhotoSelect(event, 1)">
+              <div class="slot-content" onclick="triggerPhotoSelect(1)">
+                <div class="slot-preview hidden" id="preview-1">
+                  <img src="" alt="Photo 1" id="img-preview-1">
+                  <button type="button" class="remove-photo-btn" onclick="clearPhoto(event, 1)">&times;</button>
+                </div>
+                <div class="slot-placeholder" id="placeholder-1">
+                  <div class="slot-icon">📷</div>
+                  <span class="slot-label">Photo 1 (Frontal)</span>
+                  <span class="slot-badge-req">Required</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Photo Slot 2 -->
+            <div class="photo-slot" id="slot-2">
+              <input type="file" id="photo2-input" name="photo2" accept="image/*" class="photo-file-hidden" required onchange="handlePhotoSelect(event, 2)">
+              <div class="slot-content" onclick="triggerPhotoSelect(2)">
+                <div class="slot-preview hidden" id="preview-2">
+                  <img src="" alt="Photo 2" id="img-preview-2">
+                  <button type="button" class="remove-photo-btn" onclick="clearPhoto(event, 2)">&times;</button>
+                </div>
+                <div class="slot-placeholder" id="placeholder-2">
+                  <div class="slot-icon">📷</div>
+                  <span class="slot-label">Photo 2 (Slight Left)</span>
+                  <span class="slot-badge-req">Required</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Photo Slot 3 -->
+            <div class="photo-slot" id="slot-3">
+              <input type="file" id="photo3-input" name="photo3" accept="image/*" class="photo-file-hidden" required onchange="handlePhotoSelect(event, 3)">
+              <div class="slot-content" onclick="triggerPhotoSelect(3)">
+                <div class="slot-preview hidden" id="preview-3">
+                  <img src="" alt="Photo 3" id="img-preview-3">
+                  <button type="button" class="remove-photo-btn" onclick="clearPhoto(event, 3)">&times;</button>
+                </div>
+                <div class="slot-placeholder" id="placeholder-3">
+                  <div class="slot-icon">📷</div>
+                  <span class="slot-label">Photo 3 (Slight Right)</span>
+                  <span class="slot-badge-req">Required</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="enroll-error" class="error-banner hidden"></div>
+        <div id="enroll-success" class="success-banner hidden"></div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeEnrollModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="enroll-submit-btn">
+            Confirm Register
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

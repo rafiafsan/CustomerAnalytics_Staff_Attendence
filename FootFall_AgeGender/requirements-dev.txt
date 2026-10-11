@@ -1,0 +1,7 @@
+# Tools needed ONLY to export/quantize models or run PyTorch fallback/MiVOLO:
+ultralytics
+onnx
+onnxslim
+timm
+torch
+torchvision

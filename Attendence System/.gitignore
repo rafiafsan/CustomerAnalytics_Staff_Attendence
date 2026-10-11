@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Runtime Data (Active SQLite database & live camera captures)
+data/
+captures/
+
+# Virtual Environment
+venv/
+.venv/
+env/
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
