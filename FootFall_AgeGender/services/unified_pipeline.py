@@ -218,11 +218,11 @@ class UnifiedRetailPipeline:
         age_val = int(round(avg_age)) if avg_age is not None else None
         age_group = "Adult"
         if age_val is not None:
-            if age_val < 18:
+            if age_val < 20:
                 age_group = "Child"
             elif age_val < 30:
                 age_group = "Young Adult"
-            elif age_val < 50:
+            elif age_val < 35:
                 age_group = "Adult"
             else:
                 age_group = "Senior"
@@ -486,7 +486,7 @@ class UnifiedRetailPipeline:
                         count = self.demographic_sampling_counts.get(t_id, 0)
                         px1, py1, px2, py2 = person["bbox"]
                         # Tiny/far people give unusable face crops: skip until they are big enough
-                        if count < 4 and (py2 - py1) >= self.min_demo_person_height:
+                        if count < 7 and (py2 - py1) >= self.min_demo_person_height:
                             self.demographic_sampling_counts[t_id] = count + 1
                             if native_frame is not None:
                                 crop = native_frame[max(0, py1):min(orig_shape[0], py2), max(0, px1):min(orig_shape[1], px2)]

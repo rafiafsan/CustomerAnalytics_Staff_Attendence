@@ -10,7 +10,10 @@ def format_time(ts_str):
         return ts_str[:19].replace("T", " ")
 
 def main():
-    db_path = Path("data/attendance.db")
+    # Resolve path relative to this script so it works from any working directory
+    db_path = Path(__file__).resolve().parent / "data" / "attendance.db"
+    if not db_path.exists():
+        db_path = Path("data/attendance.db")
     if not db_path.exists():
         print(f"[!] Database not found at {db_path}")
         return

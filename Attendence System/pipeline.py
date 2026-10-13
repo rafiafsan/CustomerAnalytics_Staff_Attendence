@@ -238,6 +238,8 @@ class AttendancePipeline:
 
 
 
+
+
             # Record verified attendance event if confirmed
             if is_confirmed and matched_id:
                 # Date
@@ -265,6 +267,8 @@ class AttendancePipeline:
                     face_image_path=saved_paths.get("aligned_image_path", ""),
                     embedding_path=saved_paths.get("embedding_path", "")
                 )
+
+
 
 
 

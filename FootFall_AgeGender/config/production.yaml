@@ -34,7 +34,7 @@ gates:
   config_file: "config/gates.json"
   deadband_pixels: 15
   min_entry_dwell_seconds: 60
-  min_exit_dwell_seconds: 10
+  min_exit_dwell_seconds: 90
   min_dwell_seconds: 60
 
 bag_detection:
@@ -55,7 +55,7 @@ demographics:
   max_samples: 4
   queue_size: 4
   cpu_threads: 1
-  female_threshold: 0.40
+  female_threshold: 0.33
 
 api:
   enabled: true

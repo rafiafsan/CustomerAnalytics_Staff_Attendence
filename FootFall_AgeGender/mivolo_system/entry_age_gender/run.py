@@ -29,7 +29,7 @@ from gate.geometry import get_side  # noqa: E402
 
 Point = Tuple[int, int]
 MAX_MISSING_FRAMES = 15
-AGE_GENDER_START_FRAME = 15
+AGE_GENDER_START_FRAME = 5
 
 
 @dataclass(frozen=True)
