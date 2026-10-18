@@ -110,7 +110,8 @@ def get_status():
         "camera_name": CAMERA_NAME,
         "target_fps": TARGET_FPS,
         "enrolled_employees": len(pipeline.enrolled_gallery),
-        "total_attendance": db_stats.get("total_attendance", 0),
+        "total_attendance": db_stats.get("verified_today", 0),
+        "all_time_attendance": db_stats.get("total_attendance", 0),
         "total_captures": db_stats.get("total_captures", 0),
         "passed_quality": db_stats.get("passed_quality", 0),
         "quality_pass_rate": db_stats.get("quality_pass_rate", 0.0)

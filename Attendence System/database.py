@@ -249,8 +249,30 @@ class DatabaseManager:
             """, (limit,))
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_today_attendance(self, target_date: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Fetch unique confirmed attendance records for today (one per staff member)."""
+        if not target_date:
+            target_date = datetime.date.today().isoformat()
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    employee_id as staff_id,
+                    employee_name as name,
+                    MAX(timestamp) as timestamp,
+                    camera_id,
+                    MAX(confidence) as similarity_score,
+                    status
+                FROM attendance_events
+                WHERE timestamp LIKE ? AND status = 'CONFIRMED'
+                GROUP BY employee_id
+                ORDER BY timestamp DESC
+            """, (f"{target_date}%",))
+            return [dict(row) for row in cursor.fetchall()]
+
     def get_stats(self) -> Dict[str, Any]:
         """Summary statistics for monitoring."""
+        today_str = datetime.date.today().isoformat()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM employees")
@@ -258,6 +280,22 @@ class DatabaseManager:
 
             cursor.execute("SELECT COUNT(*) FROM attendance_events")
             total_attendance = cursor.fetchone()[0]
+
+            # Unique staff verified TODAY
+            cursor.execute("""
+                SELECT COUNT(DISTINCT employee_id)
+                FROM attendance_events
+                WHERE timestamp LIKE ? AND status = 'CONFIRMED'
+            """, (f"{today_str}%",))
+            verified_today = cursor.fetchone()[0]
+
+            # Total punch events TODAY
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM attendance_events
+                WHERE timestamp LIKE ? AND status = 'CONFIRMED'
+            """, (f"{today_str}%",))
+            today_punches = cursor.fetchone()[0]
 
             cursor.execute("SELECT COUNT(*) FROM face_captures")
             total_captures = cursor.fetchone()[0]
@@ -268,7 +306,10 @@ class DatabaseManager:
             return {
                 "total_employees": total_employees,
                 "total_attendance": total_attendance,
+                "verified_today": verified_today,
+                "today_punches": today_punches,
                 "total_captures": total_captures,
                 "passed_quality": passed_quality,
                 "quality_pass_rate": round(passed_quality / total_captures * 100, 1) if total_captures > 0 else 0.0
             }
+

@@ -1112,7 +1112,7 @@ class AttendanceApp:
             self.kpi_cards["captures"].configure(text=f"{stats.get('total_captures', 0):,}")
             self.kpi_cards["quality"].configure(text=f"{stats.get('quality_pass_rate', 0.0):.1f}%")
             self.kpi_cards["enrolled"].configure(text=f"{enrolled_count} Staff")
-            self.kpi_cards["attendance"].configure(text=f"{stats.get('total_attendance', 0)} Today")
+            self.kpi_cards["attendance"].configure(text=f"{stats.get('verified_today', 0)} Today")
         except Exception as e:
             logger.error(f"Error updating KPI cards: {e}")
 
