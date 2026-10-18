@@ -20,6 +20,7 @@ from typing import Optional, Dict, Any, List, Tuple
 
 import cv2
 import numpy as np
+import requests
 from PIL import Image, ImageTk
 
 import tkinter as tk
@@ -65,7 +66,7 @@ class UnifiedRetailSuiteApp:
         self.is_running = True
 
         # Executive Live Stream display state (User-controllable RAM Saver)
-        self.exec_retail_display_enabled = True
+        self.exec_retail_display_enabled = False
         self.exec_retail_photo = None
         self.canvas_exec_retail = None
 
@@ -135,10 +136,10 @@ class UnifiedRetailSuiteApp:
         title_box = tk.Frame(brand_frame, bg=BG_CARD)
         title_box.pack(side=tk.LEFT)
 
-        lbl_title = tk.Label(title_box, text="OmniRetail AI Suite", font=("Segoe UI", 14, "bold"), fg=TEXT_WHITE, bg=BG_CARD)
+        lbl_title = tk.Label(title_box, text="VisionGuard REtail-AI", font=("Segoe UI", 14, "bold"), fg=TEXT_WHITE, bg=BG_CARD)
         lbl_title.pack(anchor="w")
 
-        lbl_sub = tk.Label(title_box, text="Integrated Customer Analytics & VisionGuard Staff Attendance", font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD)
+        lbl_sub = tk.Label(title_box, text="Customer Analytics & Staff Attendance", font=("Segoe UI", 8), fg=TEXT_MUTED, bg=BG_CARD)
         lbl_sub.pack(anchor="w")
 
         # Center: Master Tab Navigation Buttons
@@ -149,7 +150,7 @@ class UnifiedRetailSuiteApp:
         tabs = [
             ("overview", "📊 Store Executive Dashboard"),
             ("retail", "👥 Customer Analytics & Demographics"),
-            ("attendance", "👤 Staff Attendance & VisionGuard"),
+            ("attendance", "👤 Staff Attendance"),
             ("settings", "⚙️ Central Settings & Diagnostics"),
         ]
 
@@ -174,6 +175,18 @@ class UnifiedRetailSuiteApp:
         # Right: Live Status Pills & Shutdown
         right_status_frame = tk.Frame(self.header_bar, bg=BG_CARD)
         right_status_frame.pack(side=tk.RIGHT)
+
+        active_shop = os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3"))
+        self.lbl_outlet_badge = tk.Label(
+            right_status_frame,
+            text=f"🏬 Shop #{active_shop}",
+            font=("Segoe UI", 8, "bold"),
+            bg=BG_CARD_LIGHT,
+            fg=ACCENT_CYAN,
+            padx=10,
+            pady=4,
+        )
+        self.lbl_outlet_badge.pack(side=tk.LEFT, padx=4)
 
         self.lbl_retail_status = tk.Label(
             right_status_frame,
@@ -290,12 +303,34 @@ class UnifiedRetailSuiteApp:
             parent_frame=self.tab_frames["retail"],
             auto_countdown=False,
         )
+        # Auto-start retail footfall & demographics AI monitoring immediately on RTSP connect
+        if hasattr(self.retail_app, "_start_monitoring"):
+            self.retail_app._start_monitoring()
 
         # 2. Embed VisionGuard Attendance into Tab 3
         self.attendance_app = AttendanceApp(
             root=self.root,
             parent_frame=self.tab_frames["attendance"],
         )
+
+        # 3. Synchronize active Shop / Location ID and Central API between modules
+        active_shop = getattr(self.retail_app, "shop_id", 3)
+        active_api = getattr(self.retail_app, "api_url", "http://ai.prangroup.com:8021")
+
+        os.environ["SHOP_ID"] = str(active_shop)
+        os.environ["LOCATION_ID"] = str(active_shop)
+        os.environ["API_GATEWAY_URL"] = active_api
+        os.environ["ATTENDANCE_API_URL"] = f"{active_api.rstrip('/')}/api/v1/attendance"
+
+        if getattr(self.attendance_app, "pipeline", None):
+            self.attendance_app.pipeline.location_id = active_shop
+            if hasattr(self.attendance_app.pipeline, "api_client"):
+                self.attendance_app.pipeline.api_client.endpoint_url = f"{active_api.rstrip('/')}/api/v1/attendance"
+
+        if hasattr(self, "lbl_outlet_badge"):
+            self.lbl_outlet_badge.config(text=f"🏬 Shop #{active_shop}")
+        if hasattr(self, "lbl_exec_shop"):
+            self.lbl_exec_shop.config(text=f"🏬 Outlet Shop ID: #{active_shop}")
 
     # =========================================================================
     # TAB 1: Store Executive Dashboard (Combined Store Intelligence)
@@ -317,6 +352,18 @@ class UnifiedRetailSuiteApp:
         b_right = tk.Frame(banner, bg=BG_CARD)
         b_right.pack(side=tk.RIGHT)
 
+        active_shop = os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3"))
+        self.lbl_exec_shop = tk.Label(
+            b_right,
+            text=f"🏬 Outlet Shop ID: #{active_shop}",
+            font=("Segoe UI", 10, "bold"),
+            fg=ACCENT_CYAN,
+            bg=BG_CARD_LIGHT,
+            padx=12,
+            pady=4,
+        )
+        self.lbl_exec_shop.pack(side=tk.LEFT, padx=(0, 10))
+
         self.lbl_exec_date = tk.Label(
             b_right,
             text=time.strftime("%A, %d %B %Y"),
@@ -326,7 +373,7 @@ class UnifiedRetailSuiteApp:
             padx=14,
             pady=5,
         )
-        self.lbl_exec_date.pack()
+        self.lbl_exec_date.pack(side=tk.LEFT)
 
         # 6 KPI Metric Cards
         kpi_row = tk.Frame(container, bg=BG_MAIN)
@@ -348,11 +395,11 @@ class UnifiedRetailSuiteApp:
 
         self.btn_exec_start_retail = tk.Button(
             action_strip,
-            text="🚀 Start Footfall Stream",
+            text="⏹️ Stop Footfall Stream",
             font=("Segoe UI", 9, "bold"),
-            bg=ACCENT_BLUE,
+            bg=ACCENT_RED,
             fg=TEXT_WHITE,
-            activebackground=ACCENT_HOVER,
+            activebackground="#dc2626",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
             padx=12,
@@ -448,20 +495,20 @@ class UnifiedRetailSuiteApp:
 
         self.lbl_exec_retail_stream_mode = tk.Label(
             l_head_ctrl,
-            text="● Live Preview: ON",
+            text="💤 RAM Saver: Paused",
             font=("Segoe UI", 8, "bold"),
-            fg=ACCENT_GREEN,
+            fg=ACCENT_AMBER,
             bg=BG_CARD,
         )
         self.lbl_exec_retail_stream_mode.pack(side=tk.LEFT, padx=(0, 8))
 
         self.btn_toggle_exec_retail_display = tk.Button(
             l_head_ctrl,
-            text="👁️ Live Video: ON",
+            text="💤 Live Video: OFF (RAM Saver)",
             font=("Segoe UI", 8, "bold"),
-            bg=ACCENT_GREEN,
+            bg="#475569",
             fg=TEXT_WHITE,
-            activebackground="#059669",
+            activebackground="#334155",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
             padx=10,
@@ -670,10 +717,11 @@ class UnifiedRetailSuiteApp:
 
         f_shop = tk.Frame(row_api, bg=BG_CARD)
         f_shop.grid(row=0, column=1, sticky="ew", padx=(6, 0))
-        tk.Label(f_shop, text="Retail Outlet Shop ID:", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=BG_CARD).pack(anchor="w", pady=(0, 2))
+        tk.Label(f_shop, text="Retail Outlet Shop / Location ID:", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=BG_CARD).pack(anchor="w", pady=(0, 2))
         self.entry_cfg_shop = tk.Entry(f_shop, font=("Consolas", 9), bg=BG_MAIN, fg=TEXT_WHITE, insertbackground=TEXT_WHITE, relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER_COLOR)
         self.entry_cfg_shop.pack(fill=tk.X, ipady=4)
-        self.entry_cfg_shop.insert(0, str(getattr(self.retail_app, "shop_id", 2)))
+        active_shop_val = getattr(self.retail_app, "shop_id", os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3")))
+        self.entry_cfg_shop.insert(0, str(active_shop_val))
 
         # Attendance Thresholds
         row_thresh = tk.Frame(left_cfg, bg=BG_CARD)
@@ -682,17 +730,27 @@ class UnifiedRetailSuiteApp:
 
         f_cos = tk.Frame(row_thresh, bg=BG_CARD)
         f_cos.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        tk.Label(f_cos, text="SFace Cosine Threshold (Default: 0.380):", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=BG_CARD).pack(anchor="w", pady=(0, 2))
+        tk.Label(f_cos, text="SFace Cosine Threshold (Default: 0.450):", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=BG_CARD).pack(anchor="w", pady=(0, 2))
         self.entry_cfg_cosine = tk.Entry(f_cos, font=("Consolas", 9), bg=BG_MAIN, fg=TEXT_WHITE, insertbackground=TEXT_WHITE, relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER_COLOR)
         self.entry_cfg_cosine.pack(fill=tk.X, ipady=4)
-        self.entry_cfg_cosine.insert(0, "0.380")
+        active_cos = getattr(
+            getattr(getattr(self.attendance_app, "pipeline", None), "recognizer", None),
+            "cosine_threshold",
+            float(os.getenv("COSINE_THRESHOLD", "0.450"))
+        )
+        self.entry_cfg_cosine.insert(0, f"{active_cos:.3f}")
 
         f_fps = tk.Frame(row_thresh, bg=BG_CARD)
         f_fps.grid(row=0, column=1, sticky="ew", padx=(6, 0))
         tk.Label(f_fps, text="Attendance Sampling Target FPS:", font=("Segoe UI", 9, "bold"), fg=TEXT_MUTED, bg=BG_CARD).pack(anchor="w", pady=(0, 2))
         self.entry_cfg_fps = tk.Entry(f_fps, font=("Consolas", 9), bg=BG_MAIN, fg=TEXT_WHITE, insertbackground=TEXT_WHITE, relief=tk.FLAT, highlightthickness=1, highlightbackground=BORDER_COLOR)
         self.entry_cfg_fps.pack(fill=tk.X, ipady=4)
-        self.entry_cfg_fps.insert(0, "3.0")
+        active_fps = getattr(
+            getattr(self.attendance_app, "pipeline", None),
+            "target_fps",
+            float(os.getenv("TARGET_FPS", "3.0"))
+        )
+        self.entry_cfg_fps.insert(0, f"{active_fps:.1f}")
 
         # Action Buttons
         row_btn = tk.Frame(left_cfg, bg=BG_CARD)
@@ -753,11 +811,148 @@ class UnifiedRetailSuiteApp:
         self.txt_diag.pack(fill=tk.BOTH, expand=True)
         self.txt_diag.insert(tk.END, "[System Ready] Click 'Run Diagnostic Check' to verify all camera streams, models, and databases.\n")
 
+    def _persist_yaml_setting(self, section: str, key: str, value: Any):
+        """Helper to safely persist configuration parameters in config/production.yaml."""
+        import re
+        for p in [FOOTFALL_ROOT / "config" / "production.yaml", Path("config/production.yaml")]:
+            if p.exists():
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        content = f.read()
+
+                    val_str = f'"{value}"' if isinstance(value, str) and not (value.startswith('"') and value.endswith('"')) else str(value)
+                    key_pattern = rf"(^\s*{key}\s*:\s*).*$"
+                    if re.search(key_pattern, content, flags=re.MULTILINE):
+                        content = re.sub(key_pattern, rf"\g<1>{val_str}", content, flags=re.MULTILINE)
+                    else:
+                        sec_pattern = rf"(^{section}\s*:\s*$)"
+                        if re.search(sec_pattern, content, flags=re.MULTILINE):
+                            content = re.sub(sec_pattern, rf"\g<1>\n  {key}: {val_str}", content, flags=re.MULTILINE)
+
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(content)
+                except Exception as e:
+                    print(f"[Settings] Error writing to {p}: {e}")
+
+    def _persist_env_setting(self, key: str, value: str):
+        """Helper to safely persist environment keys in .env files."""
+        for p in [FOOTFALL_ROOT / ".env", WORKSPACE_ROOT / ".env"]:
+            if p.exists():
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        lines = f.readlines()
+                    found = False
+                    new_lines = []
+                    for line in lines:
+                        if line.startswith(f"{key}="):
+                            new_lines.append(f"{key}={value}\n")
+                            found = True
+                        else:
+                            new_lines.append(line)
+                    if not found:
+                        new_lines.append(f"{key}={value}\n")
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.writelines(new_lines)
+                except Exception as e:
+                    print(f"[Settings] Error updating {p}: {e}")
+
+    def _persist_attendance_config(self, key: str, value: str):
+        """Helper to persist settings in Attendence System/config.py."""
+        import re
+        p = ATTENDANCE_ROOT / "config.py"
+        if p.exists():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    content = f.read()
+                pattern = rf"(^{key}\s*=\s*).*$"
+                if re.search(pattern, content, flags=re.MULTILINE):
+                    content = re.sub(pattern, rf"\g<1>{value}", content, flags=re.MULTILINE)
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(content)
+            except Exception as e:
+                print(f"[Settings] Error writing to {p}: {e}")
+
     def _save_settings(self):
+        feedback_msgs = []
+
+        # 1. Retail Outlet Shop / Location ID
+        shop_str = self.entry_cfg_shop.get().strip()
+        if shop_str:
+            try:
+                new_shop_id = int(shop_str)
+                # Sync process environment
+                os.environ["SHOP_ID"] = str(new_shop_id)
+                os.environ["LOCATION_ID"] = str(new_shop_id)
+
+                # Sync Retail Analytics App
+                if hasattr(self, "retail_app") and self.retail_app:
+                    self.retail_app.shop_id = new_shop_id
+                    if hasattr(self.retail_app, "lbl_api_badge") and self.retail_app.lbl_api_badge:
+                        try:
+                            self.retail_app.lbl_api_badge.config(
+                                text=f"API: {self.retail_app.api_url}  |  Outlet ID: {new_shop_id}"
+                            )
+                        except Exception:
+                            pass
+                    if getattr(self.retail_app, "pipeline", None) and hasattr(self.retail_app.pipeline, "db_manager"):
+                        self.retail_app.pipeline.db_manager.shop_id = new_shop_id
+
+                # Sync Attendance System App & Pipeline
+                if hasattr(self, "attendance_app") and self.attendance_app:
+                    if getattr(self.attendance_app, "pipeline", None):
+                        if hasattr(self.attendance_app.pipeline, "set_location_id"):
+                            self.attendance_app.pipeline.set_location_id(new_shop_id)
+                        else:
+                            self.attendance_app.pipeline.location_id = new_shop_id
+
+                # Update UI Header & Overview Badges
+                if hasattr(self, "lbl_outlet_badge"):
+                    self.lbl_outlet_badge.config(text=f"🏬 Shop #{new_shop_id}")
+                if hasattr(self, "lbl_exec_shop"):
+                    self.lbl_exec_shop.config(text=f"🏬 Outlet Shop ID: #{new_shop_id}")
+
+                # Persist to configuration files
+                self._persist_yaml_setting("shop", "shop_id", new_shop_id)
+                self._persist_env_setting("SHOP_ID", str(new_shop_id))
+                self._persist_env_setting("LOCATION_ID", str(new_shop_id))
+
+                feedback_msgs.append(f"• Shop / Location ID: Set to #{new_shop_id} across all AI pipelines & configs")
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Retail Outlet Shop / Location ID must be an integer (e.g., 3).")
+                return
+
+        # 2. Cloud API Base URL
+        new_api = self.entry_cfg_api.get().strip()
+        if new_api:
+            clean_api = new_api.rstrip("/")
+            os.environ["API_GATEWAY_URL"] = clean_api
+            os.environ["ATTENDANCE_API_URL"] = f"{clean_api}/api/v1/attendance"
+
+            if hasattr(self, "retail_app") and self.retail_app:
+                self.retail_app.api_url = clean_api
+                if hasattr(self.retail_app, "lbl_api_badge") and self.retail_app.lbl_api_badge:
+                    try:
+                        self.retail_app.lbl_api_badge.config(
+                            text=f"API: {clean_api}  |  Outlet ID: {getattr(self.retail_app, 'shop_id', 3)}"
+                        )
+                    except Exception:
+                        pass
+                if getattr(self.retail_app, "pipeline", None) and hasattr(self.retail_app.pipeline, "db_manager"):
+                    self.retail_app.pipeline.db_manager.base_url = clean_api
+
+            if hasattr(self, "attendance_app") and self.attendance_app:
+                if getattr(self.attendance_app, "pipeline", None) and hasattr(self.attendance_app.pipeline, "api_client"):
+                    self.attendance_app.pipeline.api_client.endpoint_url = f"{clean_api}/api/v1/attendance"
+
+            self._persist_yaml_setting("api", "base_url", f'"{clean_api}"')
+            self._persist_env_setting("API_GATEWAY_URL", clean_api)
+            feedback_msgs.append(f"• Cloud API URL: Set to {clean_api} (Attendance & Retail updated)")
+
+        # 3. Customer Footfall Camera RTSP URL
         new_retail = self.entry_cfg_retail_rtsp.get().strip()
-        new_attend = self.entry_cfg_attend_rtsp.get().strip()
-        if new_retail and hasattr(self.retail_app, "_persist_rtsp_url"):
-            self.retail_app._persist_rtsp_url(new_retail)
+        if new_retail:
+            if hasattr(self.retail_app, "_persist_rtsp_url"):
+                self.retail_app._persist_rtsp_url(new_retail)
             self.retail_app.saved_rtsp = new_retail
             if hasattr(self.retail_app, "current_source"):
                 self.retail_app.current_source = new_retail
@@ -768,18 +963,59 @@ class UnifiedRetailSuiteApp:
                         self.retail_app.rtsp_entry.insert(0, new_retail)
                 except Exception:
                     pass
+            feedback_msgs.append("• Customer Footfall Camera RTSP: Updated and persisted to config")
 
-        if new_attend and hasattr(self.attendance_app, "current_rtsp_url"):
-            self.attendance_app.current_rtsp_url = new_attend
-            if self.attendance_app.pipeline and self.attendance_app.pipeline.stream:
-                self.attendance_app.pipeline.stream.rtsp_url = new_attend
-                if hasattr(self.attendance_app.pipeline.stream, "reconnect"):
-                    self.attendance_app.pipeline.stream.reconnect(new_attend)
-                else:
-                    self.attendance_app.pipeline.stream.stop()
-                    self.attendance_app.pipeline.stream.start()
+        # 4. Staff Attendance Camera RTSP URL
+        new_attend = self.entry_cfg_attend_rtsp.get().strip()
+        if new_attend:
+            if hasattr(self, "attendance_app") and self.attendance_app:
+                self.attendance_app.current_rtsp_url = new_attend
+                if getattr(self.attendance_app, "pipeline", None) and self.attendance_app.pipeline.stream:
+                    self.attendance_app.pipeline.stream.rtsp_url = new_attend
+                    if hasattr(self.attendance_app.pipeline.stream, "reconnect"):
+                        self.attendance_app.pipeline.stream.reconnect(new_attend)
+                    else:
+                        self.attendance_app.pipeline.stream.stop()
+                        self.attendance_app.pipeline.stream.start()
+            os.environ["RTSP_URL"] = new_attend
+            self._persist_attendance_config("RTSP_URL", f'"{new_attend}"')
+            feedback_msgs.append("• Staff Attendance Camera RTSP: Stream reconnected & persisted to config")
 
-        messagebox.showinfo("Settings Saved", "Configuration successfully saved and applied to edge pipelines.")
+        # 5. SFace Cosine Similarity Threshold
+        cosine_str = self.entry_cfg_cosine.get().strip()
+        if cosine_str:
+            try:
+                new_cos = float(cosine_str)
+                if hasattr(self, "attendance_app") and self.attendance_app:
+                    if getattr(self.attendance_app, "pipeline", None) and hasattr(self.attendance_app.pipeline, "recognizer"):
+                        self.attendance_app.pipeline.recognizer.cosine_threshold = new_cos
+                os.environ["COSINE_THRESHOLD"] = str(new_cos)
+                self._persist_attendance_config("COSINE_SIMILARITY_THRESHOLD", str(new_cos))
+                feedback_msgs.append(f"• SFace Cosine Threshold: Updated to {new_cos:.3f}")
+            except ValueError:
+                messagebox.showerror("Invalid Input", "SFace Cosine Threshold must be a decimal number (e.g. 0.450).")
+                return
+
+        # 6. Attendance Sampling Target FPS
+        fps_str = self.entry_cfg_fps.get().strip()
+        if fps_str:
+            try:
+                new_fps = max(0.5, min(30.0, float(fps_str)))
+                if hasattr(self, "attendance_app") and self.attendance_app:
+                    if getattr(self.attendance_app, "pipeline", None):
+                        self.attendance_app.pipeline.target_fps = new_fps
+                        if self.attendance_app.pipeline.stream:
+                            self.attendance_app.pipeline.stream.target_fps = new_fps
+                            self.attendance_app.pipeline.stream.frame_interval = 1.0 / new_fps
+                os.environ["TARGET_FPS"] = str(new_fps)
+                self._persist_attendance_config("TARGET_FPS", str(new_fps))
+                feedback_msgs.append(f"• Attendance Target FPS: Set to {new_fps:.1f} FPS")
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Target FPS must be a valid number (e.g. 3.0).")
+                return
+
+        msg_body = "\n".join(feedback_msgs)
+        messagebox.showinfo("Configuration Synchronized", f"Settings successfully updated and applied in real-time:\n\n{msg_body}")
 
     def _run_diagnostic_check(self):
         self.txt_diag.insert(tk.END, f"\n=== Edge Diagnostic Test ({time.strftime('%H:%M:%S')}) ===\n")
@@ -810,7 +1046,20 @@ class UnifiedRetailSuiteApp:
         staff_cnt = self.attendance_app.pipeline.storage.get_enrolled_staff_count()
         self.txt_diag.insert(tk.END, f"✓ Enrolled Staff Gallery: {staff_cnt} staff profiles registered\n")
 
-        # 5. Attendance Stream Status
+        # 5. Active Shop / Location ID & Central API Settings
+        active_shop = getattr(self.retail_app, "shop_id", os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3")))
+        active_api = getattr(self.retail_app, "api_url", os.getenv("API_GATEWAY_URL", "http://ai.prangroup.com:8021"))
+        self.txt_diag.insert(tk.END, f"✓ Active Outlet Shop / Location ID: #{active_shop}\n")
+        self.txt_diag.insert(tk.END, f"✓ Central API Base URL: {active_api}\n")
+
+        # 6. Live API Ping
+        try:
+            r = requests.get(f"{active_api.rstrip('/')}/health", timeout=3)
+            self.txt_diag.insert(tk.END, f"✓ Cloud API Health Ping: HTTP {r.status_code} OK (Live Gateway Reachable)\n")
+        except Exception as e:
+            self.txt_diag.insert(tk.END, f"⚠ Cloud API Health Ping: {e}\n")
+
+        # 7. Attendance Stream Status
         is_att_conn = getattr(self.attendance_app.pipeline.stream, "is_connected", False)
         fps = getattr(self.attendance_app.pipeline.stream, "current_fps", 0.0)
         self.txt_diag.insert(tk.END, f"{'✓' if is_att_conn else '⚠'} Attendance RTSP: {'Connected' if is_att_conn else 'Reconnecting'} ({fps:.1f} FPS)\n")

@@ -95,7 +95,7 @@ class AttendanceApp:
         self.log_queue = queue.Queue()
         self.frame_queue = queue.Queue(maxsize=2)
         self.is_running = True
-        self.stream_paused = False
+        self.live_display_enabled = False
         self.current_rtsp_url = RTSP_URL
 
         # Caches
@@ -291,14 +291,26 @@ class AttendanceApp:
         cam_title = tk.Label(video_header, text=f"{CAMERA_NAME} ({CAMERA_ID})", font=("Segoe UI", 10, "bold"), bg=BG_CARD, fg=TEXT_WHITE)
         cam_title.pack(side=tk.LEFT)
 
-        # Snap button & pause
+        # Snap button & display toggle
         snap_btn = tk.Button(video_header, text="📷 Snapshot", font=("Segoe UI", 8), bg=BG_CARD_LIGHT, fg=TEXT_WHITE,
                              relief=tk.FLAT, padx=8, pady=2, cursor="hand2", command=self.save_snapshot)
         snap_btn.pack(side=tk.RIGHT, padx=(4, 0))
 
-        self.pause_btn = tk.Button(video_header, text="⏸ Pause", font=("Segoe UI", 8), bg=BG_CARD_LIGHT, fg=TEXT_WHITE,
-                                  relief=tk.FLAT, padx=8, pady=2, cursor="hand2", command=self.toggle_stream_pause)
-        self.pause_btn.pack(side=tk.RIGHT)
+        self.btn_toggle_display = tk.Button(
+            video_header,
+            text="💤 Live Video: OFF (RAM Saver)",
+            font=("Segoe UI", 8, "bold"),
+            bg="#475569",
+            fg=TEXT_WHITE,
+            activebackground="#334155",
+            activeforeground=TEXT_WHITE,
+            relief=tk.FLAT,
+            padx=8,
+            pady=2,
+            cursor="hand2",
+            command=self.toggle_live_display,
+        )
+        self.btn_toggle_display.pack(side=tk.RIGHT)
 
         # Canvas for video
         self.video_canvas = tk.Canvas(left_panel, bg="#050811", highlightthickness=0)
@@ -972,10 +984,6 @@ class AttendanceApp:
         def worker():
             logger.info("Background Face Detection & Recognition Worker started.")
             while self.is_running:
-                if self.stream_paused:
-                    time.sleep(0.1)
-                    continue
-
                 if self.pipeline and self.pipeline.stream:
                     # 1. Check for sample frame to process
                     has_sample, sample_frame, _ = self.pipeline.stream.get_sampled_frame()
@@ -1007,17 +1015,17 @@ class AttendanceApp:
         self.root.after(1200, self.load_embeddings_gallery)
 
     def _update_video_canvas(self):
-        """Renders live video frame on Tkinter canvas at ~30 FPS."""
+        """Renders live video frame on Tkinter canvas or RAM Saver notice."""
         if not self.is_running:
             return
 
-        if not self.stream_paused and self.pipeline and self.pipeline.stream:
-            is_connected = self.pipeline.stream.is_connected
-            if is_connected:
-                self.status_pill.configure(text="● LIVE (Connected)", bg="#14532d", fg="#86efac")
-            else:
-                self.status_pill.configure(text="● Connecting RTSP...", bg="#78350f", fg="#fde047")
+        is_connected = self.pipeline.stream.is_connected if (self.pipeline and self.pipeline.stream) else False
+        if is_connected:
+            self.status_pill.configure(text="● LIVE (Connected)", bg="#14532d", fg="#86efac")
+        else:
+            self.status_pill.configure(text="● Connecting RTSP...", bg="#78350f", fg="#fde047")
 
+        if self.live_display_enabled and self.pipeline and self.pipeline.stream:
             # Prefer latest annotated frame, fallback to raw frame
             frame_to_show = self.latest_display_frame
             if frame_to_show is None:
@@ -1057,8 +1065,24 @@ class AttendanceApp:
                         text="Connecting to RTSP Stream...\n(Please ensure Camera is online on LAN)",
                         fill="#fde047", font=("Segoe UI", 12, "bold"), justify=tk.CENTER
                     )
+        elif not self.live_display_enabled:
+            c_width = self.video_canvas.winfo_width()
+            c_height = self.video_canvas.winfo_height()
+            if c_width > 100 and c_height > 100:
+                self.video_canvas.delete("all")
+                status_txt = "🟢 Stream: Connected" if is_connected else "🟡 Stream: Connecting..."
+                self.video_canvas.create_text(
+                    c_width // 2, c_height // 2,
+                    text=f"⚡ Live Video Display Paused (RAM Saver Active)\n\n"
+                         f"{status_txt}\n"
+                         f"YuNet Face Detection, SFace Verification & Attendance Logging\n"
+                         f"are running 24/7 in the background with 0 display overhead.\n\n"
+                         f"Click 'Live Video: OFF' above to view live camera stream.",
+                    fill="#94a3b8", font=("Segoe UI", 10), justify=tk.CENTER
+                )
 
-        self.root.after(33, self._update_video_canvas)
+        interval = 33 if self.live_display_enabled else 350
+        self.root.after(interval, self._update_video_canvas)
 
     def _drain_logs(self):
         """Transfers log messages from queue to ScrolledText widget."""
@@ -1092,13 +1116,15 @@ class AttendanceApp:
         except Exception as e:
             logger.error(f"Error updating KPI cards: {e}")
 
-    def toggle_stream_pause(self):
-        self.stream_paused = not self.stream_paused
-        if self.stream_paused:
-            self.pause_btn.configure(text="▶ Resume", bg=ACCENT_BLUE)
-            self.status_pill.configure(text="● PAUSED", bg="#78350f", fg="#fde047")
+    def toggle_live_display(self):
+        """Toggle live stream rendering on/off to conserve system RAM and CPU."""
+        self.live_display_enabled = not self.live_display_enabled
+        if self.live_display_enabled:
+            if hasattr(self, "btn_toggle_display"):
+                self.btn_toggle_display.configure(text="👁️ Live Video: ON", bg="#15803d")
         else:
-            self.pause_btn.configure(text="⏸ Pause", bg=BG_CARD_LIGHT)
+            if hasattr(self, "btn_toggle_display"):
+                self.btn_toggle_display.configure(text="💤 Live Video: OFF (RAM Saver)", bg="#475569")
 
     def save_snapshot(self):
         if self.latest_display_frame is None and self.pipeline and self.pipeline.stream:

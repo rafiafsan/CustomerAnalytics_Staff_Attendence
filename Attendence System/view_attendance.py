@@ -26,46 +26,57 @@ def main():
     print("=" * 88)
 
     c.execute("""
-        SELECT id, employee_id, employee_name, timestamp, camera_id, confidence, status, face_image_path, embedding_path
+        SELECT
+            employee_id,
+            DATE(timestamp) AS emp_date,
+            MAX(TIME(timestamp)) AS max_time,
+            MIN(TIME(timestamp)) AS min_time
         FROM attendance_events
-        ORDER BY id ASC
+        WHERE status = 'CONFIRMED'
+        GROUP BY
+            employee_id,
+            DATE(timestamp)
+        ORDER BY emp_date
     """)
     events = c.fetchall()
-
     if not events:
-        print("  No verified attendance events recorded yet.")
-        print("  (A face must be recognized with >= 38% confidence across 3 consecutive frames to confirm)")
-    else:
-        print(f"{'Event #':<8} | {'Employee Name':<16} | {'ID':<10} | {'Time':<24} | {'Match %':<8} | {'Status'}")
-        print("-" * 88)
-        for ev in events:
-            eid, emp_id, name, ts, cam, conf, status, img_p, emb_p = ev
-            formatted_t = format_time(ts)
-            pct = f"{conf * 100:.1f}%"
-            print(f"#{eid:<7} | {name:<16} | {emp_id:<10} | {formatted_t:<24} | {pct:<8} | {status}")
-            if img_p and Path(img_p).exists():
-                print(f"         +-- Snapshot: {Path(img_p).name}")
+        print("  No verified attendance events recorded yet.\n")
+        return
 
-    print("=" * 88)
+    print(f"{'Employee ID':<14} | {'Date':<12} | {'First Punch (In)':<18} | {'Last Punch (Out)':<18}")
+    print("-" * 70)
 
-    # Summary Stats
-    c.execute("SELECT COUNT(*), COUNT(DISTINCT employee_id) FROM attendance_events")
-    total_events, distinct_emps = c.fetchone()
+    myString = []
+    for ev in events:
+        staffId = str(ev[0])
+        attnDateRaw = str(ev[1])
+        maxTimeRaw = str(ev[2])
+        minTimeRaw = str(ev[3])
 
-    c.execute("SELECT employee_name, COUNT(*) FROM attendance_events GROUP BY employee_id")
-    breakdown = c.fetchall()
+        print(f"{staffId:<14} | {attnDateRaw:<12} | {minTimeRaw:<18} | {maxTimeRaw:<18}")
 
-    print(f"\n Summary: Total Confirmed Check-ins: {total_events} | Unique Staff: {distinct_emps}")
-    if breakdown:
-        print(" Check-ins per Staff:")
-        for name, count in breakdown:
-            print(f"   * {name}: {count} event(s)")
+        # Format date as YYYYMMDD and time as HHMMSS
+        attnDate = attnDateRaw.replace("-", "")
+        maxTime = maxTimeRaw.replace(":", "")
+        minTime = minTimeRaw.replace(":", "")
 
-    print("\n Where to view:")
-    print(" 1. Web Dashboard : Open http://127.0.0.1:8080 and click 'Verified Attendance Events' tab")
-    print(" 2. Terminal      : Run 'python view_attendance.py'")
-    print(" 3. SQLite DB     : Query table 'attendance_events' in data/attendance.db")
-    print("=" * 88 + "\n")
+        myString.append(
+            f"INSERT INTO HRISOLD.LV_TTEMPATT "
+            f"(STAFFID, CDATE, CTIME, TARMINALID, LOCATIONID) "
+            f"VALUES ('{staffId}', '{attnDate}', '{maxTime}', '111111', 5)"
+        )
+
+        myString.append(
+            f"INSERT INTO HRISOLD.LV_TTEMPATT "
+            f"(STAFFID, CDATE, CTIME, TARMINALID, LOCATIONID) "
+            f"VALUES ('{staffId}', '{attnDate}', '{minTime}', '111111', 5)"
+        )
+
+    print("=" * 70)
+    print(f"Total Records: {len(events)} (Prepared {len(myString)} Oracle SQL statements)\n")
+
+  
+  
 
 if __name__ == '__main__':
     main()

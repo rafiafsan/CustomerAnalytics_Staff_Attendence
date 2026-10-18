@@ -119,7 +119,7 @@ class RetailAnalyticsApp:
         self.countdown_seconds = 15
         self.countdown_active = auto_countdown
         self.log_queue = queue.Queue(maxsize=5000)
-        self.live_display_enabled = True
+        self.live_display_enabled = False
         self.current_photo = None
         self.canvas_stream = None
 
@@ -480,11 +480,11 @@ class RetailAnalyticsApp:
 
         self.btn_toggle_display = tk.Button(
             indicators,
-            text="👁️ Live Video: ON",
+            text="💤 Live Video: OFF (RAM Saver)",
             font=("Segoe UI", 8, "bold"),
-            bg=ACCENT_GREEN,
+            bg="#475569",
             fg=TEXT_WHITE,
-            activebackground="#059669",
+            activebackground="#334155",
             activeforeground=TEXT_WHITE,
             relief=tk.FLAT,
             padx=10,
@@ -521,11 +521,13 @@ class RetailAnalyticsApp:
         s_head = tk.Frame(stream_card, bg=BG_CARD, padx=12, pady=6)
         s_head.pack(fill=tk.X)
         tk.Label(s_head, text="📹 Customer Footfall Live Camera Feed & Gates", font=("Segoe UI", 10, "bold"), fg=TEXT_WHITE, bg=BG_CARD).pack(side=tk.LEFT)
-        self.lbl_stream_mode = tk.Label(s_head, text="● Live Preview: ON", font=("Segoe UI", 8, "bold"), fg=ACCENT_GREEN, bg=BG_CARD)
+        self.lbl_stream_mode = tk.Label(s_head, text="💤 RAM Saver: Paused", font=("Segoe UI", 8, "bold"), fg=ACCENT_AMBER, bg=BG_CARD)
         self.lbl_stream_mode.pack(side=tk.RIGHT)
 
         self.canvas_stream = tk.Canvas(stream_card, bg="#020617", highlightthickness=0)
         self.canvas_stream.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+        if not self.live_display_enabled:
+            self.root.after(100, self._render_canvas_standby_notice)
 
         # 2. Right Real-Time Event Logs Card (42% width)
         log_card = tk.Frame(split_card, bg=BG_CARD, highlightthickness=1, highlightbackground=BORDER_COLOR)
@@ -611,6 +613,25 @@ class RetailAnalyticsApp:
         self.root.after(500, self._poll_pipeline_metrics)
         self.root.after(100, self._poll_live_stream)
 
+    def _render_canvas_standby_notice(self):
+        """Draws RAM Saver standby placeholder on canvas."""
+        if getattr(self, "canvas_stream", None) is not None and self.canvas_stream.winfo_exists():
+            self.current_photo = None
+            self.canvas_stream.delete("all")
+            cw = max(200, self.canvas_stream.winfo_width())
+            ch = max(150, self.canvas_stream.winfo_height())
+            self.canvas_stream.create_text(
+                cw // 2,
+                ch // 2,
+                text="⚡ Live Video Display Paused (RAM Saver Active)\n\n"
+                     "Background AI person detection, tracking, virtual gate crossing counts,\n"
+                     "and cloud sync are actively running with 0 display RAM overhead.\n\n"
+                     "Click 'Live Video: OFF' above to resume live camera preview.",
+                fill=TEXT_MUTED,
+                font=("Segoe UI", 10),
+                justify="center",
+            )
+
     def toggle_live_display(self):
         """Toggle live stream rendering on/off to conserve system RAM and CPU."""
         self.live_display_enabled = not self.live_display_enabled
@@ -624,22 +645,7 @@ class RetailAnalyticsApp:
                 self.btn_toggle_display.config(text="💤 Live Video: OFF (RAM Saver)", bg="#475569")
             if hasattr(self, "lbl_stream_mode"):
                 self.lbl_stream_mode.config(text="💤 RAM Saver: Paused", fg=ACCENT_AMBER)
-            if getattr(self, "canvas_stream", None) is not None and self.canvas_stream.winfo_exists():
-                self.current_photo = None
-                self.canvas_stream.delete("all")
-                cw = max(200, self.canvas_stream.winfo_width())
-                ch = max(150, self.canvas_stream.winfo_height())
-                self.canvas_stream.create_text(
-                    cw // 2,
-                    ch // 2,
-                    text="⚡ Live Video Display Paused (RAM Saver Active)\n\n"
-                         "Background AI person detection, tracking, virtual gate crossing counts,\n"
-                         "and cloud sync are actively running with 0 display RAM overhead.\n\n"
-                         "Click 'Live Video: OFF' above to resume live camera preview.",
-                    fill=TEXT_MUTED,
-                    font=("Segoe UI", 10),
-                    justify="center",
-                )
+            self._render_canvas_standby_notice()
 
     def _poll_live_stream(self):
         """Pulls annotated frames from the pipeline for live GUI display with bounded RAM usage."""

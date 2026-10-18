@@ -1,3 +1,4 @@
+import os
 import time
 import re
 import io
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple, Optional, Callable
 import numpy as np
 import cv2
+import requests
 from PIL import Image, ImageOps
 
 from config import (
@@ -27,6 +29,79 @@ from database import DatabaseManager
 logger = logging.getLogger("AttendancePipeline")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+API_URL = os.getenv("ATTENDANCE_API_URL", "https://ai.prangroup.com/api/v1/attendance")
+API_KEY = os.getenv("API_KEY", "secret_outlet_token_banasree")
+
+
+class AttendanceApiClient:
+    """Non-blocking HTTP Client to report attendance punch events to Retail AI API."""
+
+    def __init__(self, endpoint_url: str = API_URL, api_key: str = API_KEY):
+        self.endpoint_url = endpoint_url
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-API-Key": api_key,
+        }
+        self.session = requests.Session()
+
+    def send_punch_sync(
+        self,
+        staff_id: str,
+        employee_name: Optional[str] = None,
+        camera_id: str = "CAM_01_MAIN",
+        terminal_id: str = "111111",
+        location_id: Optional[int] = None,
+        confidence: Optional[float] = None,
+        status: str = "CONFIRMED",
+        punch_type: str = "AUTO",
+        cdate: Optional[str] = None,
+        ctime: Optional[str] = None,
+    ):
+        """Synchronously send an attendance punch with automated resilient endpoint fallback."""
+        now = datetime.now()
+        loc_id = int(location_id) if location_id is not None else int(os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3")))
+        payload = {
+            "staff_id": str(staff_id),
+            "employee_name": employee_name,
+            "cdate": cdate if cdate else now.strftime("%Y%m%d"),
+            "ctime": ctime if ctime else now.strftime("%H%M%S"),
+            "camera_id": camera_id,
+            "terminal_id": str(terminal_id),
+            "location_id": loc_id,
+            "confidence": round(float(confidence), 4) if confidence is not None else None,
+            "status": status,
+            "punch_type": punch_type,
+        }
+
+        # Resilient URL fallback list: handles direct port 8021 and reverse-proxied https
+        urls_to_try = [self.endpoint_url]
+        if "8021" not in self.endpoint_url and "ai.prangroup.com" in self.endpoint_url:
+            urls_to_try.append("http://ai.prangroup.com:8021/api/v1/attendance")
+        elif "https://ai.prangroup.com" not in self.endpoint_url and "ai.prangroup.com" in self.endpoint_url:
+            urls_to_try.append("https://ai.prangroup.com/api/v1/attendance")
+
+        for target_url in urls_to_try:
+            try:
+                res = self.session.post(target_url, json=payload, headers=self.headers, timeout=5)
+                if res.status_code == 201:
+                    logger.info(f"[Attendance API] Successfully sent punch for Staff {staff_id} to {target_url} (201 Created)")
+                    return True, res.json()
+                elif res.status_code == 404 and len(urls_to_try) > 1 and target_url == urls_to_try[0]:
+                    continue  # Try next candidate endpoint
+                else:
+                    logger.warning(f"[Attendance API] Server returned {res.status_code} ({target_url}): {res.text}")
+                    return False, res.text
+            except Exception as exc:
+                if len(urls_to_try) > 1 and target_url == urls_to_try[0]:
+                    continue  # Try next candidate endpoint
+                logger.error(f"[Attendance API] Failed to reach server ({target_url}): {exc}")
+                return False, str(exc)
+
+    def send_punch_async(self, **kwargs):
+        """Dispatches the punch in a background thread so the camera video pipeline is never blocked."""
+        thread = threading.Thread(target=self.send_punch_sync, kwargs=kwargs, daemon=True)
+        thread.start()
+
 
 class AttendancePipeline:
     """
@@ -45,19 +120,25 @@ class AttendancePipeline:
         self,
         auto_start_stream: bool = False,
         camera_id: str = CAMERA_ID,
-        target_fps: float = TARGET_FPS
+        target_fps: float = TARGET_FPS,
+        location_id: Optional[int] = None
     ):
         self.camera_id = camera_id
         self.target_fps = target_fps
+        self.location_id = (
+            int(location_id) if location_id is not None
+            else int(os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3")))
+        )
         self._model_lock = threading.RLock()
 
-        logger.info("Initializing Attendance Pipeline components...")
+        logger.info(f"Initializing Attendance Pipeline (Location/Shop ID: {self.location_id})...")
         self.detector = YuNetFaceDetector()
         self.quality_assessor = FaceQualityAssessor()
         self.recognizer = SFaceRecognizer()
         self.temporal_tracker = TemporalConfirmationTracker()
         self.storage = StorageManager()
         self.db = DatabaseManager()
+        self.api_client = AttendanceApiClient()
 
         self.stream = RTSPStreamReader(target_fps=self.target_fps)
 
@@ -67,6 +148,13 @@ class AttendancePipeline:
 
         if auto_start_stream:
             self.stream.start()
+
+    def set_location_id(self, new_loc_id: int):
+        """Dynamically updates the location_id used in central API attendance reporting."""
+        self.location_id = int(new_loc_id)
+        os.environ["LOCATION_ID"] = str(new_loc_id)
+        os.environ["SHOP_ID"] = str(new_loc_id)
+        logger.info(f"[AttendancePipeline] Updated active location_id to: {self.location_id}")
 
     def reload_enrolled_gallery(self):
         """Loads or refreshes enrolled employee embeddings from disk and SQLite."""
@@ -249,7 +337,7 @@ class AttendancePipeline:
                 ctime = datetime.now().strftime("%H%M%S")  # "172943"
 
                 print(f"\n=======================================================", flush=True)
-                print(f" [✓] VERIFIED ATTENDANCE CONFIRMED!", flush=True)
+                print(f" [SUCCESS] VERIFIED ATTENDANCE CONFIRMED!", flush=True)
                 print(f"     Staff ID   : {matched_id}", flush=True)
                 print(f"     Staff Name : {matched_name}", flush=True)
                 print(f"     Date       : {cdate}", flush=True)
@@ -258,6 +346,8 @@ class AttendancePipeline:
                 print(f"     Camera     : {self.camera_id}", flush=True)
                 print(f"=======================================================\n", flush=True)
                 logger.info(f"Verified Attendance: {matched_name} (ID: {matched_id}, Date: {cdate}, Time: {ctime}, Sim: {match_score:.2f})")
+                
+                # 1. Local SQLite storage (always preserved)
                 self.db.log_attendance(
                     emp_id=matched_id,
                     name=matched_name,
@@ -266,6 +356,21 @@ class AttendancePipeline:
                     status="CONFIRMED",
                     face_image_path=saved_paths.get("aligned_image_path", ""),
                     embedding_path=saved_paths.get("embedding_path", "")
+                )
+
+                # 2. Central API dispatch (asynchronous & non-blocking to prevent video FPS drop)
+                client = getattr(self, "api_client", None) or AttendanceApiClient()
+                client.send_punch_async(
+                    staff_id=str(matched_id),
+                    employee_name=matched_name,
+                    cdate=cdate,
+                    ctime=ctime,
+                    camera_id=self.camera_id,
+                    terminal_id=os.getenv("TERMINAL_ID", "111111"),
+                    location_id=getattr(self, "location_id", int(os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3")))),
+                    confidence=match_score,
+                    status="CONFIRMED",
+                    punch_type="AUTO"
                 )
 
 

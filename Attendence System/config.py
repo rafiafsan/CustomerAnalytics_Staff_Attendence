@@ -45,7 +45,7 @@ BORDER_MARGIN_PX = int(os.getenv("BORDER_MARGIN_PX", "8"))       # Distance from
 SFACE_MODEL_PATH = str(MODELS_DIR / "face_recognition_sface_2021dec.onnx")
 # OpenCV benchmark recommendation for SFace cosine similarity is ~0.363
 # Threshold >= 0.38 provides robust recognition while minimizing false accepts
-COSINE_SIMILARITY_THRESHOLD = 0.380
+COSINE_SIMILARITY_THRESHOLD = 0.450
 L2_DISTANCE_THRESHOLD = 1.128
 
 # 6. Temporal Confirmation Settings
@@ -61,3 +61,9 @@ WEB_PORT = int(os.getenv("WEB_PORT", "8080"))
 # False = Keep live streaming in RAM memory (stops filling disk space).
 # True  = Save every camera frame face crop and embedding to disk.
 SAVE_LIVE_CAPTURES_TO_DISK = False
+
+# 9. Central Attendance API Gateway Settings
+ATTENDANCE_API_URL = os.getenv("ATTENDANCE_API_URL", "http://ai.prangroup.com:8021/api/v1/attendance")
+ATTENDANCE_API_KEY = os.getenv("API_KEY", "secret_outlet_token_banasree")
+LOCATION_ID = int(os.getenv("LOCATION_ID", os.getenv("SHOP_ID", "3")))
+
